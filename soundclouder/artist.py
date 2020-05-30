@@ -12,74 +12,99 @@ class Artist:
 		self.session = session
 		self.data = data
 
-	def raw_sets(self):
-		sets = []
-		offset = 0
+	def fetch_collection(self, url):
+		"""
+		Fetch all items from a Soundcloud API collection
 
-		while 1:
-			resp = self.session.get(f"/users/{str(self.data['id'])}/playlists", params={
-				"offset": offset,
-				"limit": 50
-			})
-			data = resp.json()
+		:param url 	: the URL to get data from
+		"""
+		items = []
 
-			for set in data["collection"]:
-				sets.append(Set(self.session, set))
-
-			if data.get("next_href"):
-				offset += 50
-			else:
-				break
-
-		log.debug(f"Got {str(len(sets))} sets")
-
-		return sets
-
-	def raw_tracks(self):
-		tracks = []
-
-		target_url = f"{SC_API_URL_V2}/users/{self.data['id']}/tracks"
+		target_url = SC_API_URL_V2 + url
 
 		while 1:
 			resp = self.session.get(target_url, raw=True)
 			data = resp.json()
 
-			for set in data["collection"]:
-				tracks.append(Track(self.session, set))
+			for item in data["collection"]:
+				item_type = item.get("type", "")
+				item_kind = item.get("kind", "")
+
+				if "track" in item_type or "comment" in item_kind:
+					items.append(Track(self.session, item["track"]))
+				elif "track" in item_kind:
+					items.append(Track(self.session, item))
+				elif "playlist" in item_type:
+					items.append(Set(self.session, item["playlist"]))
+				elif "playlist" in item_kind:
+					items.append(Set(self.session, item))
+				elif item_kind == "like":
+					if item.get("track"):
+						items.append(Track(self.session, item["track"]))
+					elif item.get("playlist"):
+						items.append(Set.from_id(self.session, item["playlist"]["id"]))
+				else:
+					log.debug(f"Unknown item type or kind: {item_type}:{item_kind}")
 
 			if data.get("next_href"):
 				target_url = data["next_href"]
 			else:
 				break
 
-		log.debug(f"Got {str(len(tracks))} tracks")
+		log.debug(f"Got {str(len(items))} items for URL '{url}'")
 
-		return tracks
+		return items
 
-	def albums(self):
-		sets = []
+	def raw_sets(self):
+		"""
+		Get all sets (incl. playlists and albums) from the artist
 
-		for set in self.raw_sets():
-			if set.data["is_album"] is True:
-				sets.append(set)
+		:no params:
+		"""
+		return self.fetch_collection(f"/users/{str(self.data['id'])}/playlists")
 
-		log.debug(f"Got {str(len(sets))} albums")
+	def raw_posts(self):
+		"""
+		Get all reposts and tracks from the user
 
-		return sets
-
-	def playlists(self):
-		sets = []
-
-		for set in self.raw_sets():
-			if set["is_album"] is False:
-				sets.append(set)
-
-		log.debug(f"Got {str(len(sets))} playlists")
-
-		return sets
+		:no params:
+		"""
+		return self.fetch_collection(f"/profile/soundcloud:users:{self.data['id']}")
 
 	def tracks(self):
-		pass
+		"""
+		Get all of a user's own tracks
 
-	def favorites(self):
-		return self.session.get(f"/users/{self.data['id']}/favorites").json()
+		:no params:
+		"""
+		return self.fetch_collection(f"/users/{self.data['id']}/tracks")
+
+	def sets(self, album=True):
+		"""
+		Get all sets from an artist that are either an album/playlist
+
+		:no params:
+		"""
+		sets = []
+
+		for set in self.raw_sets():
+			if set.data["is_album"] == album:
+				sets.append(set)
+
+		return sets
+
+	def likes(self):
+		"""
+		All of a user's liked items, including sets and tracks
+
+		:no params:
+		"""
+		return self.fetch_collection(f"/users/{self.data['id']}/likes")
+
+	def comments(self):
+		"""
+		All tracks that a user has commented on
+
+		:no params:
+		"""
+		return self.fetch_collection(f"/users/{self.data['id']}/comments")

@@ -1,7 +1,6 @@
 import os
 import logging
 import argparse
-from pathlib import Path
 
 from . import utils
 from .set import Set
@@ -14,10 +13,16 @@ log = logging.getLogger(__name__)
 def main():
 	parser = argparse.ArgumentParser(description="download soundcloud songs")
 
-	parser.add_argument("-auth", help="your soundcloud client id, if none is given a new one will be generated", default=None)
-	parser.add_argument("-file", help="load song url list from a file")
-	parser.add_argument("-out", help="where to download files to", default="./songs")
+	parser.add_argument("-a", "--auth", help="your soundcloud client id, if none is given a new one will be generated", default=None)
+	parser.add_argument("-f", "--file", help="load song url list from a file", default=None)
+	parser.add_argument("-o", "--out", help="where to download files to", default="./songs")
+	parser.add_argument("--albums", help="download all of a user's albums", action="store_true", default=False)
+	parser.add_argument("--all-posts", help="download all tracks (incl. reposted) from a user", action="store_true", default=False)
+	parser.add_argument("--comments", help="download songs that the user commented on", action="store_true", default=False)
 	parser.add_argument("--debug", help="display verbose debug information", action="store_true", default=False)
+	parser.add_argument("--likes", help="download songs from a user's likes", action="store_true", default=False)
+	parser.add_argument("--no-reposts", help="only download a user's songs, no reposts", action="store_true", default=False)
+	parser.add_argument("--playlists", help="download all of a user's playlists", action="store_true", default=False)
 	parser.add_argument("urls", nargs="*", help="all of the songs you want to download", default=None)
 
 	args = parser.parse_args()
@@ -63,56 +68,29 @@ def main():
 		log.debug(f"Processed '{url}' with type '{type(item)}'")
 
 		if isinstance(item, Artist):
-			log.info(f"Downloading all items from @{item.data['permalink']}")
+			if args.albums and args.playlists:
+				utils.enumerate_download(item, item.raw_sets(), "sets", out_dir)
+			elif args.albums:
+				utils.enumerate_download(item, item.sets(album=True), "albums", out_dir)
+			elif args.playlists:
+				utils.enumerate_download(item, item.sets(album=False), "playlists", out_dir)
 
-			albums = item.albums()
-			dl_history = []
+			if args.no_reposts:
+				utils.enumerate_download(item, item.tracks(), "posts (no reposts)", out_dir)
+			elif args.all_posts:
+				utils.enumerate_download(item, item.raw_posts(), "posts", out_dir)
 
-			for album in albums:
-				log.info(f"Downloading all tracks from @{item.data['permalink']} - {album.data['title']}")
+			if args.comments:
+				utils.enumerate_download(item, item.comments(), "commented posts", out_dir)
 
-				location = f"{out_dir}/{item.data['permalink']}/sets/{album.data['permalink']}"
-				Path(location).mkdir(parents=True, exist_ok=True)
-
-				album.download(location)
-
-			tracks = item.raw_tracks()
-
-			for index, track in enumerate(tracks, start=1):
-				if track.data['permalink'] in dl_history:
-					log.debug(f"Removed '{track.data['title']}' as it has already been downloaded")
-					continue
-
-				log.info(f"[{str(index)}/{str(len(tracks))}] Downloading '{track.data['title']}'")
-
-				title = utils.format_song_name(track.data["title"])
-
-				location = f"{out_dir}/{track.data['user']['permalink']}"
-				Path(location).mkdir(parents=True, exist_ok=True)
-
-				target = f"{location}/{title}.mp3"
-
-				track.download(target)
-				track.tag(target, album="Singles")
-
-			log.info(f"Downloaded everything from @{item.data['permalink']}")
+			if args.likes:
+				utils.enumerate_download(item, item.likes(), "liked posts", out_dir)
 		elif isinstance(item, Track):
-			title = utils.format_song_name(item.data["title"])
-
-			location = f"{out_dir}/{item.data['user']['permalink']}"
-			Path(location).mkdir(parents=True, exist_ok=True)
-
-			target = f"{location}/{title}.mp3"
-
 			log.info(f"Downloading '{item.data['title']}'")
-
-			item.download(target)
-			item.tag(target, album="Singles")
+			item.download(out_dir)
 		elif isinstance(item, Set):
-			location = f"{out_dir}/{item.data['user']['permalink']}/sets/{item.data['permalink']}"
-			Path(location).mkdir(parents=True, exist_ok=True)
-
-			item.download(location)
+			log.info(f"Downloading all tracks from @{item.data['user']['permalink']} - '{item.data['title']}'")
+			item.download(out_dir)
 		else:
 			log.error("Invalid URL was given")
 

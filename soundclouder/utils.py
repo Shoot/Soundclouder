@@ -1,6 +1,9 @@
 
 import os
 import re
+import logging
+
+log = logging.getLogger(__name__)
 
 def format_song_name(name):
 	return re.sub(r'[\\/*?:"<>|]', "", name)
@@ -29,3 +32,10 @@ def save_client(client_id):
 		
 	with open(local_file, "w+", encoding="utf-8") as file:
 		file.write(client_id)
+
+def enumerate_download(artist, items, phrase, out_dir):
+	log.info(f"Downloading all {phrase} from @{artist.data['permalink']}")
+
+	for index, item in enumerate(items, start=1):
+		log.info(f"[{str(index)}/{str(len(items))}] Downloading '{item.data['title']}'")
+		item.download(out_dir)
